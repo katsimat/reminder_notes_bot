@@ -1,3 +1,7 @@
+import os
+import sqlite3
+import telebot
+
 from aiogram import Bot, Dispatcher, types
 from aiogram.utils import executor
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -5,60 +9,30 @@ from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters.state import StatesGroup, State
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
 
-import sqlite3
+from db import DatabaseManager
+from states import EditMessageForm, DeleteMessageForm
 
-TOKEN = '6865263691:AAH6sNlEjyHgRISLshinc98eUS5Q0nNPh0s'
-bot = Bot(token=TOKEN)
+bot = telebot.TeleBot(os.getenv("BOT_TOKEN"))
 dp = Dispatcher(bot, storage=MemoryStorage())
 
-
-def init_db():
-    with sqlite3.connect('users.db') as conn:
-        cur = conn.cursor()
-        cur.execute('''CREATE TABLE IF NOT EXISTS users 
-                       (id INTEGER PRIMARY KEY, username TEXT, name TEXT)''')
-        cur.execute('''CREATE TABLE IF NOT EXISTS messages 
-                       (id INTEGER PRIMARY KEY, user_id INTEGER, title TEXT, content TEXT,
-                       FOREIGN KEY (user_id) REFERENCES users (id))''')
-        conn.commit()
+db_manager = DatabaseManager('users.db')
+db_manager.init_db()
 
 @dp.message_handler(commands=['add'])
 async def add_user(message: types.Message):
-    with sqlite3.connect('users.db') as conn:
-        cur = conn.cursor()
-        cur.execute("SELECT * FROM users WHERE username = ?", (message.from_user.username,))
-        if cur.fetchone() is not None:
-            await message.reply("Пользователь с таким именем уже существует.")
-            return
-        cur.execute("INSERT INTO users (username, name) VALUES (?, ?)", 
-                    (message.from_user.username, message.from_user.full_name))
-        conn.commit()
-    await message.reply("Пользователь добавлен")
+    response = db_manager.add_user(message.from_user.username, message.from_user.full_name)
+    await message.reply(response)
 
 @dp.message_handler(commands=['delete'])
 async def delete_user(message: types.Message):
-    with sqlite3.connect('users.db') as conn:
-        cur = conn.cursor()
-
-        cur.execute("SELECT id FROM users WHERE username = ?", (message.from_user.username,))
-        user = cur.fetchone()
-        if user is None:
-            await message.reply("Пользователь не найден")
-            return
-
-        cur.execute("DELETE FROM users WHERE username = ?", (message.from_user.username,))
-        conn.commit()
-
-    await message.reply("Пользователь удален")
+    response = db_manager.delete_user(message.from_user.username)
+    await message.reply(response)
 
 @dp.message_handler(commands=['view'])
 async def view_users(message: types.Message):
-    with sqlite3.connect('users.db') as conn:
-        cur = conn.cursor()
-        cur.execute("SELECT * FROM users")
-        users = cur.fetchall()
-    users_list = '\n'.join([f'{user[1]}: {user[2]}' for user in users])
-    await message.reply(users_list or "Пользователей нет")
+    users = db_manager.get_all_users()
+    users_list = '\n'.join([f'{user[1]}: {user[2]}' for user in users]) if users else "Пользователей нет"
+    await message.reply(users_list)
 
 @dp.message_handler(commands=['add_message'])
 async def add_message(message: types.Message):
@@ -67,38 +41,28 @@ async def add_message(message: types.Message):
     if not content:
         await message.reply("Введите текст заметки после команды")
         return
-    
+
     # Разделение на заголовок и содержимое
     parts = content.split('\n', 1)
     title = parts[0]
     content = parts[1] if len(parts) > 1 else ''
 
-    with sqlite3.connect('users.db') as conn:
-        cur = conn.cursor()
-        cur.execute("INSERT INTO messages (user_id, title, content) VALUES (?, ?, ?)",
-                    (message.from_user.id, title, content))
-        conn.commit()
+    db_manager.add_message(message.from_user.id, title, content)
     await message.reply("Заметка с заголовком сохранена")
 
 @dp.message_handler(commands=['view_messages'])
 async def view_messages(message: types.Message):
-    with sqlite3.connect('users.db') as conn:
-        cur = conn.cursor()
-        cur.execute("SELECT title, content FROM messages WHERE user_id = ?", (message.from_user.id,))
-        messages = cur.fetchall()
-        if messages:
-            messages_list = '\n'.join([f'Заголовок: {msg[0]}\n Заметка: {msg[1]}\n' for msg in messages])
-            await message.reply(messages_list)
-        else:
-            await message.reply("У вас нет сохраненных заметок")
+    messages = db_manager.get_messages(message.from_user.id)
+    if messages:
+        messages_list = '\n'.join([f'Заголовок: {msg[0]}\n Заметка: {msg[1]}\n' for msg in messages])
+        await message.reply(messages_list)
+    else:
+        await message.reply("У вас нет сохраненных заметок")
 
 @dp.message_handler(commands=['view_titles'])
 async def view_titles(message: types.Message):
-    with sqlite3.connect('users.db') as conn:
-        cur = conn.cursor()
-        cur.execute("SELECT id, title FROM messages WHERE user_id = ?", (message.from_user.id,))
-        titles = cur.fetchall()
-        
+    titles = db_manager.get_titles(message.from_user.id)
+    
     if titles:
         keyboard = InlineKeyboardMarkup()
         for msg_id, title in titles:
@@ -120,16 +84,11 @@ async def process_callback_button(callback_query: types.CallbackQuery):
     else:
         await bot.send_message(callback_query.from_user.id, "Заметка не найдена")
 
-class EditMessageForm(StatesGroup):
-    content = State()
 
 @dp.message_handler(commands=['edit_title'])
 async def edit_title(message: types.Message):
-    with sqlite3.connect('users.db') as conn:
-        cur = conn.cursor()
-        cur.execute("SELECT id, title FROM messages WHERE user_id = ?", (message.from_user.id,))
-        titles = cur.fetchall()
-        
+    titles = db_manager.get_titles(message.from_user.id)
+    
     if titles:
         keyboard = InlineKeyboardMarkup()
         for msg_id, title in titles:
@@ -169,16 +128,10 @@ async def process_new_content(message: types.Message, state: FSMContext):
     await state.finish()
 
 
-class DeleteMessageForm(StatesGroup):
-    confirm = State()  # Для подтверждения удаления
-
 @dp.message_handler(commands=['delete_message'])
 async def delete_message(message: types.Message):
-    with sqlite3.connect('users.db') as conn:
-        cur = conn.cursor()
-        cur.execute("SELECT id, title FROM messages WHERE user_id = ?", (message.from_user.id,))
-        titles = cur.fetchall()
-        
+    titles = db_manager.get_titles(message.from_user.id)
+    
     if titles:
         keyboard = InlineKeyboardMarkup()
         for msg_id, title in titles:
@@ -189,21 +142,6 @@ async def delete_message(message: types.Message):
         
 class DeleteMessageForm(StatesGroup):
     confirm = State()  # Для подтверждения удаления
-
-@dp.message_handler(commands=['delete_message'])
-async def delete_message(message: types.Message):
-    with sqlite3.connect('users.db') as conn:
-        cur = conn.cursor()
-        cur.execute("SELECT id, title FROM messages WHERE user_id = ?", (message.from_user.id,))
-        titles = cur.fetchall()
-        
-    if titles:
-        keyboard = InlineKeyboardMarkup()
-        for msg_id, title in titles:
-            keyboard.add(InlineKeyboardButton(text=title, callback_data=f"delete_{msg_id}"))
-        await message.reply("Выберите заметку для удаления:", reply_markup=keyboard)
-    else:
-        await message.reply("У вас нет сохраненных заметок")
         
 @dp.callback_query_handler(lambda c: c.data.startswith('delete_'))
 async def process_delete_button(callback_query: types.CallbackQuery):
@@ -227,13 +165,14 @@ async def process_delete_button(callback_query: types.CallbackQuery):
     await state.finish()        
 
 
+@dp.message_handler(commands=['help'])
+async def start(message: types.Message):
+    await message.reply("Привет! Используйте команды:\n/add - Добавить пользователя\n/delete - Удалить пользователя\n/view - Просмотреть пользователей\n/add_message - Добавить заметку с заголовком. Для ввода сообщения напишите заголовок, затем на следующей строчке заметку. Все нужно писать в одном сообщении с командой \n/view_messages - Просмотреть сообщения\n /view_titles - посмотреть заметку по его заголовку\n /edit_title - редактировать заметку по его заголовку \n /delete_message - удалить заметку")
+
 @dp.message_handler(commands=['start'])
 async def start(message: types.Message):
-    await message.reply("Привет! Используйте команды:\n/add - Добавить пользователя\n/delete - Удалить пользователя\n/view - Просмотреть пользователей\n/add_message - Добавить заметку с заголовком. Для ввода сообщения напишите заголовок, затем на следующей строчке заметку. Все нужно писать в одном сообщении с командой \n/view_messages - Просмотреть сообщения\n /view_titles - посмотреть заметку по еe заголовку\n /edit_title - редактировать заметку по еe заголовку \n /delete_message - удалить заметку")
-
-
+    await message.reply("Привет! Напиши / посмотри свою заметку или зарегистрируйся\n /help")
 
 
 if __name__ == '__main__':
-    init_db()
     executor.start_polling(dp, skip_updates=True)
