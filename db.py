@@ -1,5 +1,6 @@
 import sqlite3
 
+
 class DatabaseManager:
     def __init__(self, db_filename):
         self.db_filename = db_filename
@@ -20,7 +21,7 @@ class DatabaseManager:
             cur.execute("SELECT * FROM users WHERE username = ?", (username,))
             if cur.fetchone() is not None:
                 return "Пользователь с таким именем уже существует."
-            
+
             cur.execute("INSERT INTO users (username, name) VALUES (?, ?)", (username, name))
             conn.commit()
             return "Пользователь добавлен"
@@ -37,33 +38,33 @@ class DatabaseManager:
             cur.execute("DELETE FROM users WHERE username = ?", (username,))
             conn.commit()
             return "Пользователь удален"
-        
+
     def get_all_users(self):
         with sqlite3.connect(self.db_filename) as conn:
             cur = conn.cursor()
             cur.execute("SELECT * FROM users")
             users = cur.fetchall()
             return users
-    
+
     def get_titles(self, user_id):
         with sqlite3.connect(self.db_filename) as conn:
             cur = conn.cursor()
             cur.execute("SELECT id, title FROM messages WHERE user_id = ?", (user_id,))
             return cur.fetchall()
-        
+
     def add_message(self, user_id, title, content):
         with sqlite3.connect(self.db_filename) as conn:
             cur = conn.cursor()
-            cur.execute("INSERT INTO messages (user_id, title, content) VALUES (?, ?, ?)", 
+            cur.execute("INSERT INTO messages (user_id, title, content) VALUES (?, ?, ?)",
                         (user_id, title, content))
             conn.commit()
-    
+
     def get_messages(self, user_id):
         with sqlite3.connect(self.db_filename) as conn:
             cur = conn.cursor()
             cur.execute("SELECT title, content FROM messages WHERE user_id = ?", (user_id,))
             return cur.fetchall()
-    
+
     def get_titles_for_editing(self, user_id):
         with sqlite3.connect(self.db_filename) as conn:
             cur = conn.cursor()
@@ -81,13 +82,3 @@ class DatabaseManager:
             cur = conn.cursor()
             cur.execute("UPDATE messages SET content = ? WHERE id = ?", (new_content, message_id))
             conn.commit()
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
