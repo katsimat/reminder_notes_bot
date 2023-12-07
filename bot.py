@@ -1,8 +1,7 @@
 import os
 import sqlite3
-import telebot
 
-from aiogram import Dispatcher, types
+from aiogram import Bot, Dispatcher, types
 from aiogram.utils import executor
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.dispatcher import FSMContext
@@ -11,7 +10,7 @@ from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from db import DatabaseManager
 from states import EditMessageForm, DeleteMessageForm
 
-bot = telebot.TeleBot(os.getenv("BOT_TOKEN"))
+bot = Bot(token=os.getenv("BOT_TOKEN"))
 dp = Dispatcher(bot, storage=MemoryStorage())
 
 db_manager = DatabaseManager('users.db')
