@@ -180,7 +180,7 @@ async def start(message: types.Message):
 
 @dp.message_handler(commands=['start'])
 async def start(message: types.Message):
-    await message.reply("Привет! Напиши / посмотри свою заметку или зарегистрируйся\n /help")
+    await message.reply("Привет! Бот запущен, введи команду\n /help")
 
 
 if __name__ == '__main__':
